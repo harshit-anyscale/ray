@@ -26,10 +26,37 @@ from ray.serve.config import (
     AutoscalingConfig,
     DeploymentActorConfig,
     GangSchedulingConfig,
+    ProxyLocation,
 )
+from ray.serve.context import _get_global_client
 from ray.serve.exceptions import RayServeException
 from ray.serve.schema import ApplicationStatus, ServeDeploySchema
 from ray.util.state import list_actors
+
+# ---------------------------------------------------------------------------
+# Fixture override: restart Serve (not Ray) between tests to prevent
+# accumulated controller state from degrading performance.  Without this,
+# the controller's control loop slows down after many deploy/delete cycles,
+# causing serve.run() to hang under CI resource constraints.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def serve_instance(_shared_serve_instance):
+    """Per-test Serve restart on the shared Ray cluster.
+
+    Overrides the session-scoped ``serve_instance`` from conftest so that
+    each test gets a fresh Serve controller without the cost of restarting
+    the entire Ray cluster.
+    """
+    serve.shutdown()
+    serve.start(
+        proxy_location=ProxyLocation.HeadOnly,
+        http_options={"host": "0.0.0.0"},
+    )
+    yield _get_global_client()
+    _get_global_client().delete_all_apps()
+
 
 # ---------------------------------------------------------------------------
 # Test actor classes – must be at module level for importability via string
